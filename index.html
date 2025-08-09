@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fal.ai to ComfyUI Node Generator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Fal.ai to ComfyUI Node Generator</h1>
+            <p>Convert Fal.ai API models into production-ready ComfyUI custom nodes</p>
+        </header>
+
+        <main class="grid-layout">
+            <!-- API Documentation Input -->
+            <section class="box" id="api-input-box">
+                <h2>1. API Documentation Input</h2>
+                <div class="input-group">
+                    <label for="api-url">Fal.ai Model URL (optional):</label>
+                    <input type="url" id="api-url" placeholder="https://fal.ai/models/...">
+                    <button id="fetch-docs-btn">Fetch Documentation</button>
+                </div>
+                
+                <div class="input-group">
+                    <label for="api-docs">Or paste API documentation:</label>
+                    <textarea id="api-docs" placeholder="Paste your Fal.ai API documentation here (Markdown or JSON)..." rows="10"></textarea>
+                </div>
+                
+                <button id="parse-docs-btn" class="primary-btn">Parse Documentation</button>
+                
+                <div id="parse-status" class="status-message"></div>
+            </section>
+
+            <!-- Field Selection & Configuration -->
+            <section class="box" id="field-config-box">
+                <h2>2. Field Selection & Configuration</h2>
+                
+                <div class="config-section">
+                    <h3>Node Configuration</h3>
+                    <div class="input-group">
+                        <label for="node-name">Node Display Name:</label>
+                        <input type="text" id="node-name" placeholder="My Fal Model">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="node-category">Node Category:</label>
+                        <input type="text" id="node-category" placeholder="fal_models" value="fal_models">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="api-key-handling">API Key Handling:</label>
+                        <select id="api-key-handling">
+                            <option value="config">Config File (Recommended)</option>
+                            <option value="input">Node Input Field</option>
+                            <option value="embedded">Embedded in Code</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <div class="fields-header">
+                        <h3>Available Fields</h3>
+                        <div class="field-controls-buttons">
+                            <button id="select-all-btn" class="control-btn" disabled>Select All</button>
+                            <button id="select-none-btn" class="control-btn" disabled>Select None</button>
+                        </div>
+                    </div>
+                    <div id="fields-container">
+                        <div class="placeholder-message">Parse API documentation to see available fields</div>
+                    </div>
+                </div>
+
+                <button id="generate-node-btn" class="primary-btn" disabled>Generate ComfyUI Node</button>
+            </section>
+
+            <!-- Node Preview -->
+            <section class="box" id="node-preview-box">
+                <h2>3. Node Preview</h2>
+                <div id="node-preview-container">
+                    <div class="placeholder-message">Configure your node to see a preview</div>
+                </div>
+            </section>
+
+            <!-- Code Preview -->
+            <section class="box" id="code-preview-box">
+                <h2>4. Generated Code Preview</h2>
+                <div class="code-tabs">
+                    <button class="tab-btn active" data-tab="main">Main Node File</button>
+                    <button class="tab-btn" data-tab="init">__init__.py</button>
+                    <button class="tab-btn" data-tab="requirements">requirements.txt</button>
+                    <button class="tab-btn" data-tab="installer">install.py</button>
+                </div>
+                <div id="code-container">
+                    <pre><code id="code-content">Generate a node to see the code preview</code></pre>
+                </div>
+            </section>
+
+            <!-- Download & Installation -->
+            <section class="box" id="download-box">
+                <h2>5. Download & Installation</h2>
+                
+                <div class="download-section">
+                    <h3>Download Node Package</h3>
+                    <button id="download-zip-btn" class="download-btn" disabled>
+                        <span class="download-icon">📦</span>
+                        Download Complete Node Package (ZIP)
+                    </button>
+                    
+                    <div class="individual-files" id="individual-files-section" style="display: none;">
+                        <h4>Individual Files</h4>
+                        <div class="file-list" id="file-list">
+                            <!-- Individual file download links will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="installation-section">
+                    <h3>Installation Instructions</h3>
+                    <div id="installation-instructions">
+                        <div class="placeholder-message">Generate a node to see installation instructions</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

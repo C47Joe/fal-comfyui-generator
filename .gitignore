@@ -1,0 +1,10 @@
+# Ignore temporary files
+*.tmp
+.DS_Store
+node_modules/
+
+# Ignore test generated files
+test-*.py
+test-*.js
+
+# Keep the main project files
