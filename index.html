@@ -17,15 +17,10 @@
             <!-- API Documentation Input -->
             <section class="box" id="api-input-box">
                 <h2>1. API Documentation Input</h2>
-                <div class="input-group">
-                    <label for="api-url">Fal.ai Model URL (optional):</label>
-                    <input type="url" id="api-url" placeholder="https://fal.ai/models/...">
-                    <button id="fetch-docs-btn">Fetch Documentation</button>
-                </div>
                 
                 <div class="input-group">
-                    <label for="api-docs">Or paste API documentation:</label>
-                    <textarea id="api-docs" placeholder="Paste your Fal.ai API documentation here (Markdown or JSON)..." rows="10"></textarea>
+                    <label for="api-docs">Paste Fal.ai API documentation:</label>
+                    <textarea id="api-docs" placeholder="Paste your Fal.ai API documentation here (Markdown or JSON)..." rows="12"></textarea>
                 </div>
                 
                 <button id="parse-docs-btn" class="primary-btn">Parse Documentation</button>
@@ -56,6 +51,12 @@
                             <option value="input">Node Input Field</option>
                             <option value="embedded">Embedded in Code</option>
                         </select>
+                    </div>
+                    
+                    <div class="input-group" id="api-key-input-group" style="display: none;">
+                        <label for="embedded-api-key">API Key:</label>
+                        <input type="password" id="embedded-api-key" placeholder="Paste your Fal.ai API key here">
+                        <small style="color: #666; font-size: 12px;">⚠️ This will be embedded directly in the generated code. Use with caution.</small>
                     </div>
                 </div>
 

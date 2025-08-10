@@ -20,6 +20,8 @@ const fileList = document.getElementById('file-list');
 const installationInstructions = document.getElementById('installation-instructions');
 const selectAllBtn = document.getElementById('select-all-btn');
 const selectNoneBtn = document.getElementById('select-none-btn');
+const apiKeyInputGroup = document.getElementById('api-key-input-group');
+const embeddedApiKeyInput = document.getElementById('embedded-api-key');
 
 // API Documentation Parser
 class ApiDocumentationParser {
@@ -266,7 +268,7 @@ class ApiDocumentationParser {
                 console.log('Detected ImageSize type for:', param.name);
             } else if (typeStr.includes('enum') || typeStr.includes('|')) {
                 param.type = 'ENUM';
-            } else if (typeStr.includes('list') || typeStr.includes('array')) {
+            } else if (typeStr.includes('list') || typeStr.includes('array') || param.name === 'loras') {
                 param.type = 'ARRAY';
             } else {
                 param.type = 'STRING'; // fallback
@@ -547,6 +549,8 @@ ${inputTypes.optional}
     def __init__(self):
         print(f"Initializing ${this.config.nodeName} node...")
         self.client = fal_client
+        self.progress = 0
+        self.status = "Ready"
 
 ${executeFunction}
 
@@ -659,16 +663,22 @@ import configparser`;
                     defaultValue = field.enum[0];
                 }
                 
-                // Properly escape the default value for Python strings
-                const escapedDefault = (defaultValue || '').replace(/"/g, '\\"');
+                // Clean enum values by removing quotes
+                const cleanEnum = field.enum ? field.enum.map(val => val.replace(/^["']|["']$/g, '')) : [];
                 
-                // Generate enum list - ensure field.enum exists
-                const enumList = field.enum ? JSON.stringify(field.enum) : '[]';
+                // Clean default value by removing quotes
+                const cleanDefault = (defaultValue || '').replace(/^["']|["']$/g, '');
                 
-                return `(${enumList}, {"default": "${escapedDefault}"})`;
+                return `(${JSON.stringify(cleanEnum)}, {"default": "${cleanDefault}"})`;
                 
             case 'INT':
-                const intDefault = field.default !== null && field.default !== undefined ? field.default : (field.min !== null && field.min !== undefined ? field.min : 1);
+                let intDefault = field.default !== null && field.default !== undefined ? field.default : (field.min !== null && field.min !== undefined ? field.min : 1);
+                
+                // Special handling for seed - use random number between 1-100 if no default
+                if (fieldName === 'seed' && (field.default === null || field.default === undefined)) {
+                    intDefault = Math.floor(1 + Math.random() * 100);
+                }
+                
                 const minVal = field.min !== null && field.min !== undefined ? field.min : 1;
                 const maxVal = field.max !== null && field.max !== undefined ? field.max : 100;
                 return `("INT", {"default": ${intDefault}, "min": ${minVal}, "max": ${maxVal}})`;
@@ -685,7 +695,8 @@ import configparser`;
                 return `("BOOLEAN", {"default": ${boolDefault ? 'True' : 'False'}})`;
                 
             case 'ARRAY':
-                return `("STRING", {"default": "[]", "multiline": True})`;
+                const arrayDefault = field.default && Array.isArray(field.default) ? JSON.stringify(field.default) : "[]";
+                return `("STRING", {"default": "${arrayDefault}", "multiline": True, "placeholder": "Enter JSON array, e.g. []"})`;
                 
             default:
                 const stringDefault = field.default !== null && field.default !== undefined ? field.default : '';
@@ -707,9 +718,17 @@ import configparser`;
 
         return `    def execute(self, ${paramList}):
         try:
+            # Update status
+            self.status = "Starting generation..."
+            self.progress = 0
+            print("🚀 Starting ${this.config.nodeName} generation...")
+            
 ${apiKeySetup}
             
             # Prepare request payload
+            self.status = "Preparing request..."
+            self.progress = 5
+            print("📝 Preparing API request...")
             payload = {
 ${requestPayload}
             }
@@ -739,11 +758,39 @@ ${requestPayload}
             
             payload = processed_payload
             
-            # Make API request
-            result = fal_client.run(
-                "${this.apiData.endpoint}",
-                arguments=payload
-            )
+            self.status = "Calling API..."
+            self.progress = 10
+            print(f"📡 Calling Fal.ai API: ${this.apiData.endpoint}")
+            print(f"📊 Parameters: {list(payload.keys())}")
+            
+            # Show initial progress
+            print("⏳ [██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 15% - Calling API...")
+            self.progress = 20
+            self.status = "Calling Fal.ai API..."
+            
+            # Make the API call
+            print("⏳ [██████░░░░░░░░░░░░░░░░░░░░░░░░░░] 25% - Generating...")
+            self.progress = 30
+            self.status = "Processing request..."
+            
+            result = fal_client.run("${this.apiData.endpoint}", arguments=payload)
+            
+            self.progress = 90
+            self.status = "Processing results..."
+            print("✅ API call completed successfully!")
+            print(f"📥 Processing response data...")
+            
+            # Show response info
+            if 'images' in result:
+                print(f"📸 Received {len(result['images'])} image(s) from API")
+            elif 'image' in result:
+                print("📸 Received 1 image from API")
+            
+            if 'video' in result:
+                print("🎥 Received video from API")
+            
+            if 'audio' in result:
+                print("🎵 Received audio from API")
             
 ${outputProcessing}
             
@@ -769,8 +816,16 @@ ${outputProcessing}
                     os.environ["FAL_KEY"] = config['fal']['api_key']`;
                     
             case 'embedded':
-                return `            # API key should be set in environment variables
-            # Set your FAL_KEY environment variable`;
+                const apiKey = this.config.embeddedApiKey || '';
+                if (apiKey) {
+                    return `            # Embedded API key
+            os.environ["FAL_KEY"] = "${apiKey}"`;
+                } else {
+                    return `            # Embedded API key (not provided)
+            # WARNING: No API key was provided during generation!
+            # You must set your FAL_KEY environment variable or edit this line:
+            # os.environ["FAL_KEY"] = "your-api-key-here"`;
+                }
                 
             default:
                 return '';
@@ -823,13 +878,38 @@ ${outputProcessing}
                 raise Exception("No audio found in API response")`;
                 
             default: // IMAGE
-                return `            # Process image output
+                return `            # Process image output - handle multiple images
             if 'images' in result and len(result['images']) > 0:
-                image_url = result['images'][0]['url']
-                return (self._process_image_output(image_url),)
+                if len(result['images']) == 1:
+                    # Single image
+                    image_url = result['images'][0]['url']
+                    result_tensor = self._process_image_output(image_url)
+                    self.status = "Complete!"
+                    self.progress = 100
+                    return (result_tensor,)
+                else:
+                    # Multiple images - combine into batch
+                    print(f"🖼️  Processing {len(result['images'])} images...")
+                    image_tensors = []
+                    for i, img_data in enumerate(result['images'], 1):
+                        print(f"📸 Processing image {i}/{len(result['images'])}...")
+                        image_url = img_data['url']
+                        tensor = self._process_single_image(image_url)
+                        image_tensors.append(tensor)
+                    
+                    # Combine all images into a single batch tensor
+                    print("🔗 Combining images into batch tensor...")
+                    combined_tensor = torch.cat(image_tensors, dim=0)
+                    print(f"✅ Successfully processed {len(image_tensors)} images!")
+                    self.status = "Complete!"
+                    self.progress = 100
+                    return (combined_tensor,)
             elif 'image' in result:
                 image_url = result['image']['url']
-                return (self._process_image_output(image_url),)
+                result_tensor = self._process_image_output(image_url)
+                self.status = "Complete!"
+                self.progress = 100
+                return (result_tensor,)
             else:
                 raise Exception("No image found in API response")`;
         }
@@ -837,8 +917,13 @@ ${outputProcessing}
 
     generateHelperFunctions() {
         let helpers = `    def _process_image_output(self, image_url):
-        """Convert API image to ComfyUI IMAGE format"""
+        """Convert API image to ComfyUI IMAGE format (single image)"""
+        return self._process_single_image(image_url)
+    
+    def _process_single_image(self, image_url):
+        """Process a single image URL into ComfyUI tensor format"""
         try:
+            print(f"Processing image: {image_url}")
             response = requests.get(image_url, timeout=30)
             response.raise_for_status()
             
@@ -858,7 +943,7 @@ ${outputProcessing}
             return image_tensor
             
         except Exception as e:
-            print(f"Error processing image: {str(e)}")
+            print(f"Error processing image {image_url}: {str(e)}")
             raise e`;
 
         if (this.apiData.outputType === 'VIDEO') {
@@ -937,6 +1022,27 @@ ${outputProcessing}
             print(f"Error processing audio: {str(e)}")
             raise e`;
         }
+
+        helpers += `
+    
+    def get_progress_info(self):
+        """Return current progress information"""
+        return {
+            "progress": self.progress,
+            "status": self.status,
+            "progress_bar": self._generate_progress_bar()
+        }
+    
+    def _generate_progress_bar(self):
+        """Generate a text-based progress bar"""
+        bar_length = 20
+        filled = int(bar_length * (self.progress / 100.0))
+        return "█" * filled + "░" * (bar_length - filled)
+        
+    def __str__(self):
+        """String representation showing current status"""
+        bar = self._generate_progress_bar()
+        return f"${this.config.nodeName} [{bar}] {self.progress}% - {self.status}"`;
 
         return helpers;
     }
@@ -1220,7 +1326,22 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // Node name input listener for preview updates
 nodeNameInput.addEventListener('input', updateNodePreview);
 nodeCategoryInput.addEventListener('input', updateNodePreview);
-apiKeyHandlingSelect.addEventListener('change', updateNodePreview);
+apiKeyHandlingSelect.addEventListener('change', handleApiKeyMethodChange);
+
+// Handle API key method change
+function handleApiKeyMethodChange() {
+    const method = apiKeyHandlingSelect.value;
+    
+    // Show/hide the API key input field
+    if (method === 'embedded') {
+        apiKeyInputGroup.style.display = 'block';
+    } else {
+        apiKeyInputGroup.style.display = 'none';
+        embeddedApiKeyInput.value = ''; // Clear the field
+    }
+    
+    updateNodePreview();
+}
 
 function parseDocumentation() {
     const content = apiDocsTextarea.value.trim();
@@ -1237,22 +1358,46 @@ function parseDocumentation() {
         parsedApiData = parser.parseDocumentation(content);
         
         if (!parsedApiData.parameters || Object.keys(parsedApiData.parameters).length === 0) {
-            showStatus('No parameters found in documentation. Please check the format.', 'error');
+            showStatus('❌ No input parameters found in documentation. Please check the format.', 'error');
             return;
         }
 
+        // Count required vs optional fields
+        const allFields = Object.entries(parsedApiData.parameters);
+        const requiredFields = allFields.filter(([name, field]) => field.required);
+        const optionalFields = allFields.filter(([name, field]) => !field.required);
+        
         // Set default node name if not set
         if (!nodeNameInput.value && parsedApiData.modelName) {
             nodeNameInput.value = parsedApiData.modelName.replace(/_/g, ' ');
         }
 
-        showStatus(`Successfully parsed ${Object.keys(parsedApiData.parameters).length} parameters.`, 'success');
+        // Generate detailed status message
+        const totalFields = allFields.length;
+        const requiredCount = requiredFields.length;
+        const optionalCount = optionalFields.length;
+        const outputType = parsedApiData.outputType || 'IMAGE';
+        const endpoint = parsedApiData.endpoint ? '✅' : '⚠️';
+        
+        const statusMessage = `✅ Successfully parsed API documentation!
+        
+📊 **Fields Found:**
+• Total input fields: **${totalFields}**
+• Required fields: **${requiredCount}** (${requiredFields.map(([name]) => name).join(', ')})
+• Optional fields: **${optionalCount}** ${optionalCount > 0 ? `(${optionalFields.slice(0, 3).map(([name]) => name).join(', ')}${optionalCount > 3 ? '...' : ''})` : ''}
+
+📤 **Output:** ${outputType} 
+${endpoint} **Endpoint:** ${parsedApiData.endpoint || 'Not found'}
+
+Ready to generate ComfyUI node!`;
+
+        showStatus(statusMessage, 'success');
         displayFields();
         generateNodeBtn.disabled = false;
         
     } catch (error) {
         console.error('Parse error:', error);
-        showStatus('Failed to parse documentation. Please check the format.', 'error');
+        showStatus('❌ Failed to parse documentation. Please check the format and try again.', 'error');
     }
 }
 
@@ -1269,7 +1414,7 @@ function displayFields() {
     }
 
     const fieldsHtml = fields.map(([name, field]) => `
-        <div class="field-item ${field.required ? 'required' : 'optional'}">
+        <div class="field-item ${field.required ? 'required locked' : 'optional'}">
             <div class="field-info">
                 <div>
                     <span class="field-name">${name}</span>
@@ -1277,11 +1422,11 @@ function displayFields() {
                     ${field.required ? '<span class="field-type" style="background: #ff3b30; color: white;">REQUIRED</span>' : ''}
                 </div>
                 ${field.description ? `<div class="field-description">${field.description}</div>` : ''}
-                ${field.enum ? `<div class="field-description"><strong>Options:</strong> ${field.enum.join(', ')}</div>` : ''}
+                ${field.enum ? `<div class="field-description"><strong>Options:</strong> ${field.enum.map(opt => opt.replace(/^["']|["']$/g, '')).join(', ')}</div>` : ''}
                 ${field.min !== null || field.max !== null ? `<div class="field-description"><strong>Range:</strong> ${field.min || 'min'} - ${field.max || 'max'}</div>` : ''}
             </div>
             <div class="field-controls">
-                <input type="checkbox" class="field-checkbox" data-field="${name}" ${field.required ? 'checked' : ''}>
+                <input type="checkbox" class="field-checkbox" data-field="${name}" ${field.required ? 'checked disabled' : (name === 'loras' ? '' : '')}>
             </div>
         </div>
     `).join('');
@@ -1296,6 +1441,12 @@ function displayFields() {
     fieldsContainer.querySelectorAll('.field-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
             const fieldName = e.target.dataset.field;
+            
+            // Skip if disabled (required fields)
+            if (e.target.disabled) {
+                return;
+            }
+            
             if (e.target.checked) {
                 selectedFields.add(fieldName);
             } else {
@@ -1304,8 +1455,8 @@ function displayFields() {
             updateNodePreview();
         });
 
-        // Initialize selected fields
-        if (checkbox.checked) {
+        // Initialize selected fields (including required ones, but skip LORA by default)
+        if (checkbox.checked && checkbox.dataset.field !== 'loras') {
             selectedFields.add(checkbox.dataset.field);
         }
     });
@@ -1322,8 +1473,17 @@ function generateNode() {
     const config = {
         nodeName: nodeNameInput.value || 'Fal Model',
         nodeCategory: nodeCategoryInput.value || 'fal_models',
-        apiKeyHandling: apiKeyHandlingSelect.value
+        apiKeyHandling: apiKeyHandlingSelect.value,
+        embeddedApiKey: embeddedApiKeyInput.value.trim()
     };
+
+    // Validate embedded API key
+    if (config.apiKeyHandling === 'embedded' && !config.embeddedApiKey) {
+        const proceed = confirm('⚠️ No API key provided for embedded mode.\n\nThe generated node will contain placeholder code that you\'ll need to edit manually.\n\nContinue anyway?');
+        if (!proceed) {
+            return;
+        }
+    }
 
     try {
         const generator = new ComfyUICodeGenerator(parsedApiData, selectedFields, config);
@@ -1377,10 +1537,12 @@ function selectAllFields() {
 function selectNoneFields() {
     const checkboxes = fieldsContainer.querySelectorAll('.field-checkbox');
     checkboxes.forEach(checkbox => {
-        checkbox.checked = false;
-        selectedFields.delete(checkbox.dataset.field);
+        // Don't uncheck required/disabled fields
+        if (!checkbox.disabled) {
+            checkbox.checked = false;
+            selectedFields.delete(checkbox.dataset.field);
+        }
     });
-    selectedFields.clear();
     updateNodePreview();
 }
 
@@ -1391,39 +1553,59 @@ function updateNodePreview() {
     }
 
     const nodeName = nodeNameInput.value || 'Fal Model';
+    const nodeId = Math.floor(Math.random() * 999) + 1;
+    
+    // Generate inputs
     const inputs = Array.from(selectedFields).map(fieldName => {
         const field = parsedApiData.parameters[fieldName];
         const socketClass = field.required ? 'required' : 'optional';
         const socketType = getSocketType(field.type);
         
         return `
-            <div class="socket ${socketClass}">
-                <div class="socket-dot ${socketType}"></div>
-                <span>${fieldName} (${field.type})</span>
+            <div class="node-input">
+                <div class="socket input ${socketType}"></div>
+                <span class="node-label ${socketClass}">
+                    ${fieldName}
+                    <span class="node-type-badge">${field.type}</span>
+                </span>
             </div>
         `;
     }).join('');
+
+    // Add API key input if needed
+    const apiKeyInput = apiKeyHandlingSelect.value === 'input' ? `
+        <div class="node-input">
+            <div class="socket input string"></div>
+            <span class="node-label required">
+                api_key
+                <span class="node-type-badge">STRING</span>
+            </span>
+        </div>
+    ` : '';
 
     const outputType = getSocketType(parsedApiData.outputType);
     
     const previewHtml = `
         <div class="node-preview">
-            <div class="node-title">${nodeName}</div>
-            <div class="node-inputs">
-                <h4>Inputs</h4>
-                ${apiKeyHandlingSelect.value === 'input' ? `
-                    <div class="socket required">
-                        <div class="socket-dot string"></div>
-                        <span>api_key (STRING)</span>
-                    </div>
-                ` : ''}
-                ${inputs}
+            <div class="node-header">
+                <div class="node-title">${nodeName}</div>
+                <div class="node-id">#${nodeId}</div>
             </div>
-            <div class="node-outputs">
-                <h4>Outputs</h4>
-                <div class="socket">
-                    <div class="socket-dot ${outputType}"></div>
-                    <span>${parsedApiData.outputType.toLowerCase()} (${parsedApiData.outputType})</span>
+            <div class="node-body">
+                <div class="node-section">
+                    <div class="node-section-title">Inputs</div>
+                    ${apiKeyInput}
+                    ${inputs}
+                </div>
+                <div class="node-section">
+                    <div class="node-section-title">Outputs</div>
+                    <div class="node-output">
+                        <span class="node-label">
+                            ${parsedApiData.outputType.toLowerCase()}
+                            <span class="node-type-badge">${parsedApiData.outputType}</span>
+                        </span>
+                        <div class="socket output ${outputType}"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1438,7 +1620,8 @@ function getSocketType(type) {
         'INT': 'int',
         'FLOAT': 'float',
         'BOOLEAN': 'boolean',
-        'ENUM': 'string',
+        'ENUM': 'enum',
+        'ARRAY': 'string',
         'IMAGE': 'image',
         'VIDEO': 'video',
         'AUDIO': 'audio'
@@ -1517,13 +1700,22 @@ function showInstallationInstructions() {
 }
 
 function getApiKeyInstructions(handling) {
+    const config = {
+        apiKeyHandling: handling,
+        embeddedApiKey: embeddedApiKeyInput.value.trim()
+    };
+    
     switch (handling) {
         case 'input':
             return 'Connect a text primitive with your Fal.ai API key to the "api_key" input of the node.';
         case 'config':
             return 'Edit the config.ini file and replace "your_api_key_here" with your actual Fal.ai API key.';
         case 'embedded':
-            return 'Set the FAL_KEY environment variable before starting ComfyUI.';
+            if (config.embeddedApiKey) {
+                return '✅ API key is embedded directly in the generated code. The node is ready to use immediately.';
+            } else {
+                return '⚠️ No API key was provided during generation. You must either set the FAL_KEY environment variable or edit the generated Python file to add your API key.';
+            }
         default:
             return 'Configure your API key according to your selected method.';
     }
